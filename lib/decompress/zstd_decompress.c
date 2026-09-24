@@ -83,7 +83,7 @@
 #define DDICT_HASHSET_MAX_LOAD_FACTOR_COUNT_MULT 4
 #define DDICT_HASHSET_MAX_LOAD_FACTOR_SIZE_MULT 3  /* These two constants represent SIZE_MULT/COUNT_MULT load factor without using a float.
                                                     * Currently, that means a 0.75 load factor.
-                                                    * So, if count * COUNT_MULT / size * SIZE_MULT != 0, then we've exceeded
+                                                    * So, if count * COUNT_MULT / (size * SIZE_MULT) != 0, then we've exceeded
                                                     * the load factor of the ddict hash set.
                                                     */
 
@@ -207,7 +207,7 @@ static void ZSTD_freeDDictHashSet(ZSTD_DDictHashSet* hashSet, ZSTD_customMem cus
  */
 static size_t ZSTD_DDictHashSet_addDDict(ZSTD_DDictHashSet* hashSet, const ZSTD_DDict* ddict, ZSTD_customMem customMem) {
     DEBUGLOG(4, "Adding dict ID: %u to hashset with - Count: %zu Tablesize: %zu", ZSTD_getDictID_fromDDict(ddict), hashSet->ddictPtrCount, hashSet->ddictPtrTableSize);
-    if (hashSet->ddictPtrCount * DDICT_HASHSET_MAX_LOAD_FACTOR_COUNT_MULT / hashSet->ddictPtrTableSize * DDICT_HASHSET_MAX_LOAD_FACTOR_SIZE_MULT != 0) {
+    if ((hashSet->ddictPtrCount * DDICT_HASHSET_MAX_LOAD_FACTOR_COUNT_MULT) / (hashSet->ddictPtrTableSize * DDICT_HASHSET_MAX_LOAD_FACTOR_SIZE_MULT) != 0) {
         FORWARD_IF_ERROR(ZSTD_DDictHashSet_expand(hashSet, customMem), "");
     }
     FORWARD_IF_ERROR(ZSTD_DDictHashSet_emplaceDDict(hashSet, ddict), "");
@@ -1793,6 +1793,9 @@ size_t ZSTD_DCtx_refDDict(ZSTD_DCtx* dctx, const ZSTD_DDict* ddict)
             assert(!dctx->staticSize);  /* Impossible: ddictSet cannot have been allocated if static dctx */
             FORWARD_IF_ERROR(ZSTD_DDictHashSet_addDDict(dctx->ddictSet, ddict, dctx->customMem), "");
         }
+    } else if (dctx->ddictSet) {
+        ZSTD_freeDDictHashSet(dctx->ddictSet, dctx->customMem);
+        dctx->ddictSet = NULL;
     }
     return 0;
 }
@@ -1955,6 +1958,10 @@ size_t ZSTD_DCtx_reset(ZSTD_DCtx* dctx, ZSTD_ResetDirective reset)
       || (reset == ZSTD_reset_session_and_parameters) ) {
         RETURN_ERROR_IF(dctx->streamStage != zdss_init, stage_wrong, "");
         ZSTD_clearDict(dctx);
+        if (dctx->ddictSet) {
+            ZSTD_freeDDictHashSet(dctx->ddictSet, dctx->customMem);
+            dctx->ddictSet = NULL;
+        }
         ZSTD_DCtx_resetParameters(dctx);
     }
     return 0;

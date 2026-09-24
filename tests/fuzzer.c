@@ -3941,6 +3941,56 @@ static int basicUnitTests(U32 const seed, double compressibility)
         }
         DISPLAYLEVEL(3, "OK (ASAN would report OOB write if vulnerable)\n");
 
+        DISPLAYLEVEL(3, "test%3i : DDict hashset reset and load factor : ", testNb++);
+        {
+            ZSTD_DCtx* const dctx = ZSTD_createDCtx();
+            char* dictBuf = (char*)malloc(dictBufferFixedSize);
+            ZSTD_DDict* ddict1;
+            ZSTD_DDict* ddict2;
+
+            if (!dctx || !dictBuf) {
+                DISPLAY("alloc failed\n");
+                if (dctx) ZSTD_freeDCtx(dctx);
+                if (dictBuf) free(dictBuf);
+                goto _output_error;
+            }
+
+            ZSTD_memcpy(dictBuf, dictBufferFixed, dictBufferFixedSize);
+            MEM_writeLE32(dictBuf + ZSTD_FRAMEIDSIZE, 101);
+            ddict1 = ZSTD_createDDict(dictBuf, dictBufferFixedSize);
+            MEM_writeLE32(dictBuf + ZSTD_FRAMEIDSIZE, 102);
+            ddict2 = ZSTD_createDDict(dictBuf, dictBufferFixedSize);
+
+            CHECK_Z( ZSTD_DCtx_setParameter(dctx, ZSTD_d_refMultipleDDicts, ZSTD_rmd_refMultipleDDicts) );
+            CHECK_Z( ZSTD_DCtx_refDDict(dctx, ddict1) );
+            CHECK_Z( ZSTD_DCtx_refDDict(dctx, ddict2) );
+            if (dctx->ddictSet == NULL || dctx->ddictSet->ddictPtrCount != 2) {
+                DISPLAY("ddictSet not populated\n");
+                goto _output_error;
+            }
+
+            /* refDDict(NULL) should clear ddictSet */
+            CHECK_Z( ZSTD_DCtx_refDDict(dctx, NULL) );
+            if (dctx->ddictSet != NULL) {
+                DISPLAY("ddictSet not cleared by refDDict(NULL)\n");
+                goto _output_error;
+            }
+
+            /* repopulate and verify reset clears ddictSet */
+            CHECK_Z( ZSTD_DCtx_refDDict(dctx, ddict1) );
+            CHECK_Z( ZSTD_DCtx_reset(dctx, ZSTD_reset_session_and_parameters) );
+            if (dctx->ddictSet != NULL) {
+                DISPLAY("ddictSet not cleared by ZSTD_DCtx_reset\n");
+                goto _output_error;
+            }
+
+            ZSTD_freeDDict(ddict1);
+            ZSTD_freeDDict(ddict2);
+            ZSTD_freeDCtx(dctx);
+            free(dictBuf);
+        }
+        DISPLAYLEVEL(3, "OK \n");
+
         ZSTD_freeCCtx(cctx);
         free(dictBuffer);
         free(samplesSizes);
